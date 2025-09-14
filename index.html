@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Subitize — Plain Dice Trainer</title>
+<title>Hannah’s Subitizing Game</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Crect rx='16' width='80' height='80' fill='%23000'/%3E%3Ccircle cx='40' cy='40' r='10' fill='%23fff'/%3E%3C/svg%3E">
 <style>
 :root{
-  --bg:#0b0b0c; --fg:#ffffff; --muted:#94a3b8; --accent:#7c3aed;
+  --bg:#0b0b0c; --fg:#ffffff; --muted:#94a3b8;
   --ok:#16a34a; --bad:#ef4444; --panel:#111827; --btn:#1f2937; --btnfg:#e5e7eb;
   --pad:14px; --radius:14px;
 }
@@ -62,7 +62,7 @@ button[disabled]{ opacity:.5 }
 <body>
 <div class="app">
   <div class="header">
-    <div class="title">🎲 Subitize — Plain Dice</div>
+    <div class="title">🎲 Hannah’s Subitizing Game</div>
     <div class="controls">
       <button id="btnPlay">Play ▶</button>
       <button id="btnPractice">Practice</button>
@@ -111,7 +111,7 @@ button[disabled]{ opacity:.5 }
   <div id="settingsPanel" class="panel" hidden>
     <div class="row">
       <div class="grow">
-        <b>Settings (simple)</b>
+        <b>Settings</b>
         <div class="hr"></div>
         <div class="flex"><span class="grow">Number range</span>
           <label>Min <input id="minN" type="number" value="1" min="1" max="12" style="width:64px"></label>
@@ -127,33 +127,29 @@ button[disabled]{ opacity:.5 }
   </div>
 
   <div id="infoPanel" class="panel" hidden>
-    <b>Why this subitizing game?</b>
+    <b>Why this game?</b>
     <div class="hr"></div>
     <div class="small" style="line-height:1.4">
-      <p><b>Subitizing</b> is instantly recognizing the number of items without counting. Most people can subitize about 1–4; with practice and good layouts, many recognize higher numbers quickly by chunking familiar patterns.</p>
-      <p>This trainer uses <b>canonical, easy-to-recognize dice formations</b> for 1–6 and <b>high-clarity chunked patterns</b> for 7–12 (like 3×3 and 3×4 blocks or a clean 10-frame + 1). The goal is to test and celebrate fast, pattern-based number sense—useful for early numeracy and for people who naturally perceive quantities at a glance.</p>
-      <p>Play mode measures reaction time and accuracy while keeping the dots visible so you can focus on recognition rather than racing a hidden timer. Practice mode is gentle and shows the answer label.</p>
+      <p><b>Subitizing</b> is instantly recognizing how many items there are without counting. Most people subitize 1–4; with practice and clear layouts we can recognize higher numbers by chunking patterns.</p>
+      <p>This game uses <b>canonical, easy-to-read dice formations</b> for 1–6 and simple blocks for 7–12 (3×3 and 3×4, or 10-frame + 1). It celebrates quick pattern recognition for early numeracy and for people who naturally see quantities at a glance.</p>
+      <p>In <b>Play</b>, dots stay on screen—your reaction time is measured. In <b>Practice</b>, a faint label shows the answer.</p>
     </div>
   </div>
 </div>
 
 <script>
-/*** =============== Simple Subitizing (1–12, plain dice) =============== */
+/*** =============== Hannah’s Subitizing Game (plain dice, 1–12) =============== */
 
 /* utils */
 const $ = s => document.querySelector(s);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const median = arr => { if(!arr.length) return NaN; const s=[...arr].sort((a,b)=>a-b), m=Math.floor(s.length/2); return s.length%2?s[m]:(s[m-1]+s[m])/2; };
-const choice = arr => arr[Math.floor(Math.random()*arr.length)];
 const now = () => performance.now();
 
 /* storage */
-const VERSION='subitize_plain_v1';
+const VERSION='hannah_subitize_v1';
 const DB={load(){try{return JSON.parse(localStorage.getItem(VERSION)||'{}')}catch{return{}}}, save(o){localStorage.setItem(VERSION,JSON.stringify(o))}, reset(){localStorage.removeItem(VERSION)}};
-let state=Object.assign({
-  minN:1, maxN:12, audio:false, big:false,
-  trials:[], bestStreak:0
-}, DB.load());
+let state=Object.assign({ minN:1, maxN:12, audio:false, big:false, trials:[], bestStreak:0 }, DB.load());
 
 /* audio (optional) */
 let ctxAudio=null;
@@ -161,20 +157,16 @@ function ensureAudio(){ if(!state.audio) return; try{ if(!ctxAudio) ctxAudio=new
 function beep(freq=700,dur=90,type='sine',gain=0.0009){
   if(!state.audio||!ctxAudio) return;
   const o=ctxAudio.createOscillator(), g=ctxAudio.createGain();
-  o.type=type; o.frequency.value=freq; g.gain.value=gain;
-  o.connect(g); g.connect(ctxAudio.destination); o.start(); setTimeout(()=>o.stop(),dur);
+  o.type=type; o.frequency.value=freq; g.gain.value=gain; o.connect(g); g.connect(ctxAudio.destination);
+  o.start(); setTimeout(()=>o.stop(),dur);
 }
 const beepOk=()=>beep(700,90,'sine',0.0009);
 const beepBad=()=>beep(180,120,'square',0.0012);
 
-/* single plain theme */
-const Theme={ bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0b0b0c',
-              fg: getComputedStyle(document.documentElement).getPropertyValue('--fg').trim() || '#ffffff' };
-
 /* canvas / renderer */
 const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d');
-let dpr=1, cssW=0, cssH=0, animId=null, animTime=0;
+let dpr=1, cssW=0, cssH=0;
 
 function resizeCanvas(){
   const rect = canvas.getBoundingClientRect();
@@ -191,12 +183,12 @@ window.addEventListener('orientationchange', resizeCanvas);
 function drawBackground(){
   if(!cssW||!cssH) resizeCanvas();
   ctx.clearRect(0,0,cssW,cssH);
-  ctx.fillStyle = Theme.bg;
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0b0b0c';
   ctx.fillRect(0,0,cssW,cssH);
 }
 function drawPip(x,y,r){
   ctx.save(); ctx.translate(x,y);
-  ctx.fillStyle=Theme.fg;
+  ctx.fillStyle= getComputedStyle(document.documentElement).getPropertyValue('--fg').trim() || '#ffffff';
   ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.fill();
   ctx.restore();
 }
@@ -216,43 +208,32 @@ function drawArray(points){
   for(const p of points){
     const x = cssW/2 + p.x*scale;
     const y = cssH/2 - p.y*scale;
-    drawPip(x,y,r);
+    drawPip(x, y, r);
   }
 }
 
 /* easiest layouts 1–12 (single variant each) */
-const Layouts = (function(){
+const Layouts=(function(){
   const L={}, dot=(x,y)=>({x,y});
-  // Dice-standard 1–6
+  // 1–6: canonical dice
   L[1]=[[dot(0,0)]];
   L[2]=[[dot(-.5,-.5), dot(.5,.5)]];
   L[3]=[[dot(-.6,.6), dot(0,0), dot(.6,-.6)]];
   L[4]=[[dot(-.6,.6),dot(.6,.6),dot(-.6,-.6),dot(.6,-.6)]];
   L[5]=[[dot(-.6,.6),dot(.6,.6),dot(0,0),dot(-.6,-.6),dot(.6,-.6)]];
   L[6]=[[dot(-.6,.6),dot(.6,.6),dot(-.6,0),dot(.6,0),dot(-.6,-.6),dot(.6,-.6)]];
-  // 7–9: simple chunks (6 + clear addition, 3×3 block)
-  L[7]=[ L[6][0].concat([dot(0,0)]) ]; // 6 + center
-  L[8]=[[ // two neat rows of 4
-    dot(-.6,.5),dot(-.2,.5),dot(.2,.5),dot(.6,.5),
-    dot(-.6,-.5),dot(-.2,-.5),dot(.2,-.5),dot(.6,-.5)
-  ]];
-  L[9]=[[ // 3×3 block
-    dot(-.6,.6),dot(0,.6),dot(.6,.6),
-    dot(-.6,0),dot(0,0),dot(.6,0),
-    dot(-.6,-.6),dot(0,-.6),dot(.6,-.6)
-  ]];
-  // 10: ten-frame (5×2), 11: ten-frame + one centered below, 12: always 3×4 block
-  function tenFrame10(){
-    const xs=[-0.8,-0.4,0,0.4,0.8], ys=[0.45,-0.45], arr=[];
-    for(let r=0;r<2;r++) for(let c=0;c<5;c++) arr.push(dot(xs[c], ys[r]));
-    return arr; // 10
-  }
-  function grid3x4(){ // 12 as clean 3×4
-    const xs=[-0.6,0,0.6], ys=[0.6,0.2,-0.2,-0.6], arr=[];
-    for(const y of ys) for(const x of xs) arr.push(dot(x,y)); return arr;
-  }
-  L[10]=[ tenFrame10() ];
-  L[11]=[ tenFrame10().concat([dot(0,-0.95)]) ]; // centered, clearly separate row
+  // 7–9
+  L[7]=[ L[6][0].concat([dot(0,0)]) ];
+  L[8]=[[ dot(-.6,.5),dot(-.2,.5),dot(.2,.5),dot(.6,.5),
+          dot(-.6,-.5),dot(-.2,-.5),dot(.2,-.5),dot(.6,-.5) ]];
+  L[9]=[[ dot(-.6,.6),dot(0,.6),dot(.6,.6),
+          dot(-.6,0),dot(0,0),dot(.6,0),
+          dot(-.6,-.6),dot(0,-.6),dot(.6,-.6) ]];
+  // 10: ten-frame, 11: ten-frame + centered below, 12: 3×4 block
+  function ten10(){ const xs=[-0.8,-0.4,0,0.4,0.8], ys=[0.45,-0.45], a=[]; for(let r=0;r<2;r++) for(let c=0;c<5;c++) a.push(dot(xs[c],ys[r])); return a; }
+  function grid3x4(){ const xs=[-0.6,0,0.6], ys=[0.6,0.2,-0.2,-0.6], a=[]; for(const y of ys) for(const x of xs) a.push(dot(x,y)); return a; }
+  L[10]=[ ten10() ];
+  L[11]=[ ten10().concat([dot(0,-0.95)]) ];
   L[12]=[ grid3x4() ];
   return L;
 })();
@@ -266,29 +247,36 @@ function randN(){
   const min=+$('#minN').value, max=+$('#maxN').value;
   return Math.floor(Math.random()*(max-min+1))+min;
 }
-function nextArray(n){ return Layouts[n][0]; } // single “easiest” variant only
+function nextArray(n){ return Layouts[n][0]; }
 
 function startTrial(){
-  trialActive=true; targetN=randN();
+  trialActive = true;
+  targetN = randN();
+
   const pts = nextArray(targetN);
   drawArray(pts);
+
   $('#trialCounter').textContent = String(++total);
   $('#lastRT').textContent = '—';
   tStart = now();
 
-  // In Practice, show a faint label
-  if(mode===Modes.PRACTICE){
-    const fb=$('#feedback'); fb.className='feedback'; fb.textContent=`(${targetN})`;
-    fb.style.opacity=.6;
+  // Practice shows a faint answer; Play shows nothing extra
+  const fb = $('#feedback');
+  if (mode === Modes.PRACTICE) {
+    fb.className = 'feedback';
+    fb.textContent = `(${targetN})`;
+    fb.style.opacity = 0.6;
   } else {
-    $('#feedback').textContent='';
+    fb.textContent = '';
+    fb.style.opacity = 1;
   }
 }
+
 function endTrial(){ trialActive=false; setTimeout(()=>startTrial(), 250); }
 
 function recordTrial(resp, correct, rt){
   state.trials.push({ts:Date.now(), n:targetN, resp, correct, rt});
-  state.bestStreak = Math.max(state.bestStreak||0, streak);
+  state.bestStreak = Math.max(state.bestStreak||0, correct ? (streak) : (streak-1));
   DB.save(state);
 }
 
@@ -326,7 +314,7 @@ function exportCSV(){
   for(const t of state.trials){ rows.push([t.ts,t.n,t.resp,t.correct?1:0,t.rt]); }
   const csv = rows.map(r=>r.join(',')).join('\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='subitize_plain_results.csv';
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='hannah_subitize_results.csv';
   document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 80);
 }
 
@@ -373,7 +361,7 @@ function applyStateToUI(){
   $('#chkAudio').checked=state.audio; $('#chkBig').checked=state.big;
   buildKeypad(); drawBackground();
 }
-animTime=0; resizeCanvas(); applyStateToUI(); show('gamePanel'); startTrial();
+resizeCanvas(); applyStateToUI(); show('gamePanel'); startTrial();
 </script>
 </body>
 </html>
