@@ -28,15 +28,12 @@ button[disabled]{ opacity:.5 }
 .row{ display:flex; gap:var(--pad); flex-wrap:wrap; }
 .panel{ background:var(--panel); border-radius:var(--radius); padding:var(--pad); box-shadow:0 6px 24px rgba(0,0,0,.18); }
 
-.canvasWrap{
-  position:relative; width:100%; aspect-ratio:1 / 1; display:flex; align-items:center; justify-content:center;
-  flex: 2 1 0; min-width:260px;
-}
+.canvasWrap{ position:relative; width:100%; aspect-ratio:1/1; display:flex; align-items:center; justify-content:center; flex:2 1 0; min-width:260px; }
 #stage{ width:100%; height:100%; display:block; background:transparent; border-radius:12px; touch-action:manipulation; }
 .feedback{ position:absolute; inset:auto 0 6% 0; text-align:center; font-weight:700; font-size:18px; }
 .feedback.ok{ color:var(--ok) } .feedback.bad{ color:var(--bad) }
 
-.side{ flex: 1 1 0; min-width:260px; }
+.side{ flex:1 1 0; min-width:260px; }
 .keypad{ display:grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap:10px; }
 .key{ padding:16px; border-radius:12px; background:var(--btn); text-align:center; font-size:18px; }
 .key:active{ transform: translateY(1px) scale(.98); }
@@ -44,7 +41,6 @@ button[disabled]{ opacity:.5 }
 .small{ font-size:12px; color:var(--muted) }
 .flex{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
 .grow{ flex:1 }
-.range{ width:100% }
 .statgrid{ display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; }
 .kv{ padding:10px; border-radius:10px; background:var(--btn); }
 .kv b{ display:block; font-size:13px; color:var(--muted); margin-bottom:8px; }
@@ -53,7 +49,7 @@ button[disabled]{ opacity:.5 }
 .disclaimer{ font-size:12px; color:var(--muted) }
 
 @media (max-width: 820px){
-  .row{ flex-direction: column; }
+  .row{ flex-direction:column; }
   .keypad{ grid-template-columns: repeat(4, minmax(0,1fr)); }
   .statgrid{ grid-template-columns:1fr }
 }
@@ -131,237 +127,127 @@ button[disabled]{ opacity:.5 }
     <div class="hr"></div>
     <div class="small" style="line-height:1.4">
       <p><b>Subitizing</b> is instantly recognizing how many items there are without counting. Most people subitize 1–4; with practice and clear layouts we can recognize higher numbers by chunking patterns.</p>
-      <p>This game uses <b>canonical, easy-to-read dice formations</b> for 1–6 and simple blocks for 7–12 (3×3 and 3×4, or 10-frame + 1). It celebrates quick pattern recognition for early numeracy and for people who naturally see quantities at a glance.</p>
+      <p>This game uses <b>canonical dice formations</b> for 1–6 and simple blocks for 7–12 (3×3 and 3×4, or 10-frame + 1). It celebrates quick pattern recognition for early numeracy and for people who naturally see quantities at a glance.</p>
       <p>In <b>Play</b>, dots stay on screen—your reaction time is measured. In <b>Practice</b>, a faint label shows the answer.</p>
     </div>
   </div>
 </div>
 
 <script>
-/*** =============== Hannah’s Subitizing Game (plain dice, 1–12) =============== */
-
-/* utils */
-const $ = s => document.querySelector(s);
+/*** === Game logic === ***/
+const $=s=>document.querySelector(s);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-const median = arr => { if(!arr.length) return NaN; const s=[...arr].sort((a,b)=>a-b), m=Math.floor(s.length/2); return s.length%2?s[m]:(s[m-1]+s[m])/2; };
-const now = () => performance.now();
+const median=a=>{if(!a.length)return NaN;const s=[...a].sort((x,y)=>x-y),m=Math.floor(s.length/2);return a.length%2?s[m]:(s[m-1]+s[m])/2};
+const now=()=>performance.now();
 
 /* storage */
-const VERSION='hannah_subitize_v1';
-const DB={load(){try{return JSON.parse(localStorage.getItem(VERSION)||'{}')}catch{return{}}}, save(o){localStorage.setItem(VERSION,JSON.stringify(o))}, reset(){localStorage.removeItem(VERSION)}};
-let state=Object.assign({ minN:1, maxN:12, audio:false, big:false, trials:[], bestStreak:0 }, DB.load());
+const VERSION="hannah_subitize_v3";
+const DB={load(){try{return JSON.parse(localStorage.getItem(VERSION)||"{}")}catch{return{}}},save(o){localStorage.setItem(VERSION,JSON.stringify(o))},reset(){localStorage.removeItem(VERSION)}};
+let state=Object.assign({minN:1,maxN:12,audio:false,big:false,trials:[],bestStreak:0},DB.load());
 
-/* audio (optional) */
-let ctxAudio=null;
-function ensureAudio(){ if(!state.audio) return; try{ if(!ctxAudio) ctxAudio=new (window.AudioContext||window.webkitAudioContext)(); }catch{} }
-function beep(freq=700,dur=90,type='sine',gain=0.0009){
-  if(!state.audio||!ctxAudio) return;
-  const o=ctxAudio.createOscillator(), g=ctxAudio.createGain();
-  o.type=type; o.frequency.value=freq; g.gain.value=gain; o.connect(g); g.connect(ctxAudio.destination);
-  o.start(); setTimeout(()=>o.stop(),dur);
-}
-const beepOk=()=>beep(700,90,'sine',0.0009);
-const beepBad=()=>beep(180,120,'square',0.0012);
+/* canvas */
+const canvas=document.getElementById("stage"),ctx=canvas.getContext("2d");let dpr=1,cssW=0,cssH=0;
+let currentPoints=null,currentN=0,redrawScheduled=false;
+function resizeCanvas(){const r=canvas.getBoundingClientRect();dpr=Math.max(1,window.devicePixelRatio||1);cssW=r.width||canvas.clientWidth||300;cssH=r.height||canvas.clientHeight||300;canvas.width=Math.round(cssW*dpr);canvas.height=Math.round(cssH*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);}
+function drawBackground(){if(!cssW||!cssH)resizeCanvas();ctx.clearRect(0,0,cssW,cssH);ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue("--bg").trim()||"#0b0b0c";ctx.fillRect(0,0,cssW,cssH);}
+function drawPip(x,y,r){ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue("--fg").trim()||"#fff";ctx.fill();}
+function dotRadius(n,w,h){const b=Math.min(w,h)/12;return n<=3?b:n<=6?b*0.9:n<=9?b*0.8:b*0.75;}
+function drawArray(pts){drawBackground();const r=dotRadius(pts.length,cssW,cssH),scale=Math.min(cssW,cssH)*(state.big?.48:.44);for(const p of pts){drawPip(cssW/2+p.x*scale,cssH/2-p.y*scale,r);}}
+function redrawCurrent(){if(!currentPoints)return;if(redrawScheduled)return;redrawScheduled=true;requestAnimationFrame(()=>{resizeCanvas();drawArray(currentPoints);if(mode==="Practice"){const fb=$("#feedback");fb.className="feedback";fb.textContent=`(${currentN})`;fb.style.opacity=.6;}redrawScheduled=false;});}
+window.addEventListener("resize",redrawCurrent,{passive:true});window.addEventListener("orientationchange",redrawCurrent);document.addEventListener("visibilitychange",()=>{if(!document.hidden)redrawCurrent()});
 
-/* canvas / renderer */
-const canvas = document.getElementById('stage');
-const ctx = canvas.getContext('2d');
-let dpr=1, cssW=0, cssH=0;
+/* layouts */
+const L={},dot=(x,y)=>({x,y});L[1]=[[dot(0,0)]];
+L[2]=[[dot(-.5,-.5),dot(.5,.5)]];
+L[3]=[[dot(-.6,.6),dot(0,0),dot(.6,-.6)]];
+L[4]=[[dot(-.6,.6),dot(.6,.6),dot(-.6,-.6),dot(.6,-.6)]];
+L[5]=[[dot(-.6,.6),dot(.6,.6),dot(0,0),dot(-.6,-.6),dot(.6,-.6)]];
+L[6]=[[dot(-.6,.6),dot(.6,.6),dot(-.6,0),dot(.6,0),dot(-.6,-.6),dot(.6,-.6)]];
+L[7]=[L[6][0].concat([dot(0,0)])];
+L[8]=[[dot(-.6,.5),dot(-.2,.5),dot(.2,.5),dot(.6,.5),dot(-.6,-.5),dot(-.2,-.5),dot(.2,-.5),dot(.6,-.5)]];
+L[9]=[[dot(-.6,.6),dot(0,.6),dot(.6,.6),dot(-.6,0),dot(0,0),dot(.6,0),dot(-.6,-.6),dot(0,-.6),dot(.6,-.6)]];
+function ten10(){const xs=[-0.8,-0.4,0,0.4,0.8],ys=[0.45,-0.45],a=[];for(const y of ys)for(const x of xs)a.push(dot(x,y));return a;}
+function grid3x4(){const xs=[-0.6,0,0.6],ys=[0.6,0.2,-0.2,-0.6],a=[];for(const y of ys)for(const x of xs)a.push(dot(x,y));return a;}
+L[10]=[ten10()];L[11]=[ten10().concat([dot(0,-0.95)])];L[12]=[grid3x4()];
 
-function resizeCanvas(){
-  const rect = canvas.getBoundingClientRect();
-  dpr = Math.max(1, window.devicePixelRatio||1);
-  cssW = rect.width || canvas.clientWidth || 300;
-  cssH = rect.height || canvas.clientHeight || 300;
-  canvas.width = Math.round(cssW * dpr);
-  canvas.height= Math.round(cssH * dpr);
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-}
-window.addEventListener('resize', resizeCanvas, {passive:true});
-window.addEventListener('orientationchange', resizeCanvas);
+/* game */
+let mode="Play",trialActive=false,targetN=0,tStart=0,streak=0,total=0;
+function randN(){const min=+$("#minN").value,max=+$("#maxN").value;return Math.floor(Math.random()*(max-min+1))+min;}
+function startTrial(){trialActive=true;targetN=randN();const pts=L[targetN][0];currentPoints=pts;currentN=targetN;drawArray(pts);$("#trialCounter").textContent=String(++total);$("#lastRT").textContent="—";tStart=now();const fb=$("#feedback");if(mode==="Practice"){fb.className="feedback";fb.textContent=`(${targetN})`;fb.style.opacity=.6}else{fb.textContent="";fb.style.opacity=1}}
+function endTrial(){trialActive=false;setTimeout(()=>startTrial(),250);}
+function handleAnswer(n){if(!trialActive)return;const rt=Math.round(now()-tStart),ok=n===targetN;streak=ok?streak+1:0;$("#streak").textContent=String(streak);$("#lastRT").textContent=ok?`${rt} ms`:`× (${targetN})`;const fb=$("#feedback");fb.className="feedback "+(ok?"ok":"bad");fb.textContent=ok?"✓":`✗ (${targetN})`;state.trials.push({ts:Date.now(),n:targetN,resp:n,correct:ok,rt});state.bestStreak=Math.max(state.bestStreak||0,streak);DB.save(state);endTrial();}
 
-function drawBackground(){
-  if(!cssW||!cssH) resizeCanvas();
-  ctx.clearRect(0,0,cssW,cssH);
-  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0b0b0c';
-  ctx.fillRect(0,0,cssW,cssH);
-}
-function drawPip(x,y,r){
-  ctx.save(); ctx.translate(x,y);
-  ctx.fillStyle= getComputedStyle(document.documentElement).getPropertyValue('--fg').trim() || '#ffffff';
-  ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.fill();
-  ctx.restore();
-}
-function dotRadiusForCount(n,w,h){
-  const base = Math.min(w,h)/12;
-  if(n<=3) return base*1.0;
-  if(n<=6) return base*0.9;
-  if(n<=9) return base*0.8;
-  if(n<=12) return base*0.75;
-  return base*0.7;
-}
-function drawArray(points){
-  drawBackground();
-  const n = points.length;
-  const r = dotRadiusForCount(n, cssW, cssH);
-  const scale = Math.min(cssW, cssH) * (state.big ? 0.48 : 0.44);
-  for(const p of points){
-    const x = cssW/2 + p.x*scale;
-    const y = cssH/2 - p.y*scale;
-    drawPip(x, y, r);
-  }
-}
-
-/* easiest layouts 1–12 (single variant each) */
-const Layouts=(function(){
-  const L={}, dot=(x,y)=>({x,y});
-  // 1–6: canonical dice
-  L[1]=[[dot(0,0)]];
-  L[2]=[[dot(-.5,-.5), dot(.5,.5)]];
-  L[3]=[[dot(-.6,.6), dot(0,0), dot(.6,-.6)]];
-  L[4]=[[dot(-.6,.6),dot(.6,.6),dot(-.6,-.6),dot(.6,-.6)]];
-  L[5]=[[dot(-.6,.6),dot(.6,.6),dot(0,0),dot(-.6,-.6),dot(.6,-.6)]];
-  L[6]=[[dot(-.6,.6),dot(.6,.6),dot(-.6,0),dot(.6,0),dot(-.6,-.6),dot(.6,-.6)]];
-  // 7–9
-  L[7]=[ L[6][0].concat([dot(0,0)]) ];
-  L[8]=[[ dot(-.6,.5),dot(-.2,.5),dot(.2,.5),dot(.6,.5),
-          dot(-.6,-.5),dot(-.2,-.5),dot(.2,-.5),dot(.6,-.5) ]];
-  L[9]=[[ dot(-.6,.6),dot(0,.6),dot(.6,.6),
-          dot(-.6,0),dot(0,0),dot(.6,0),
-          dot(-.6,-.6),dot(0,-.6),dot(.6,-.6) ]];
-  // 10: ten-frame, 11: ten-frame + centered below, 12: 3×4 block
-  function ten10(){ const xs=[-0.8,-0.4,0,0.4,0.8], ys=[0.45,-0.45], a=[]; for(let r=0;r<2;r++) for(let c=0;c<5;c++) a.push(dot(xs[c],ys[r])); return a; }
-  function grid3x4(){ const xs=[-0.6,0,0.6], ys=[0.6,0.2,-0.2,-0.6], a=[]; for(const y of ys) for(const x of xs) a.push(dot(x,y)); return a; }
-  L[10]=[ ten10() ];
-  L[11]=[ ten10().concat([dot(0,-0.95)]) ];
-  L[12]=[ grid3x4() ];
-  return L;
-})();
-
-/* game logic */
-const Modes={ PLAY:'Play', PRACTICE:'Practice' };
-let mode=Modes.PLAY, trialActive=false, targetN=0, tStart=0, streak=0, total=0;
-
-function setMode(m){ mode=m; }
-function randN(){
-  const min=+$('#minN').value, max=+$('#maxN').value;
-  return Math.floor(Math.random()*(max-min+1))+min;
-}
-function nextArray(n){ return Layouts[n][0]; }
-
-function startTrial(){
-  trialActive = true;
-  targetN = randN();
-
-  const pts = nextArray(targetN);
-  drawArray(pts);
-
-  $('#trialCounter').textContent = String(++total);
-  $('#lastRT').textContent = '—';
-  tStart = now();
-
-  // Practice shows a faint answer; Play shows nothing extra
-  const fb = $('#feedback');
-  if (mode === Modes.PRACTICE) {
-    fb.className = 'feedback';
-    fb.textContent = `(${targetN})`;
-    fb.style.opacity = 0.6;
-  } else {
-    fb.textContent = '';
-    fb.style.opacity = 1;
-  }
-}
-
-function endTrial(){ trialActive=false; setTimeout(()=>startTrial(), 250); }
-
-function recordTrial(resp, correct, rt){
-  state.trials.push({ts:Date.now(), n:targetN, resp, correct, rt});
-  state.bestStreak = Math.max(state.bestStreak||0, correct ? (streak) : (streak-1));
-  DB.save(state);
-}
-
-function handleAnswer(n){
-  if(!trialActive) return;
-  const rt = Math.round(now()-tStart);
-  const ok = (n===targetN);
-  if(ok){ streak++; if(state.audio) beepOk(); } else { streak=0; if(state.audio) beepBad(); }
-  $('#streak').textContent = String(streak);
-  $('#lastRT').textContent = ok ? `${rt} ms` : `× (${targetN})`;
-  const fb=$('#feedback'); fb.className='feedback ' + (ok?'ok':'bad'); fb.textContent = ok ? '✓' : `✗ (${targetN})`;
-  recordTrial(n, ok, rt);
-  endTrial();
-}
-
-/* results & csv */
-function computeStats(){
-  const T=state.trials; if(!T.length) return {acc:'—', rt:'—', best: state.bestStreak||0, by:'—'};
-  const acc=(T.filter(t=>t.correct).length/T.length*100).toFixed(1)+'%';
-  const rt = Math.round(median(T.filter(t=>t.correct).map(t=>t.rt))) + ' ms';
-  const byN={}; for(const t of T){ byN[t.n] ||= {c:0, ok:0, rts:[]}; byN[t.n].c++; if(t.correct){ byN[t.n].ok++; byN[t.n].rts.push(t.rt);} }
-  const parts=Object.keys(byN).sort((a,b)=>a-b).map(n=>{
-    const s=byN[n], a=((s.ok/s.c)*100)|0, mrt=Math.round(median(s.rts)||NaN);
-    return `${n}:${a}%${Number.isFinite(mrt)?`,${mrt}ms`:''}`;
-  });
-  return {acc, rt, best: state.bestStreak||0, by: parts.join(' • ')||'—'};
-}
-function renderResults(){
-  const s=computeStats();
-  $('#accOverall').textContent=s.acc; $('#rtOverall').textContent=s.rt;
-  $('#bestStreak').textContent=s.best; $('#byNumber').textContent=s.by;
-}
-function exportCSV(){
-  const rows=[['timestamp','n','response','correct','rt_ms']];
-  for(const t of state.trials){ rows.push([t.ts,t.n,t.resp,t.correct?1:0,t.rt]); }
-  const csv = rows.map(r=>r.join(',')).join('\n');
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='hannah_subitize_results.csv';
-  document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 80);
-}
+/* results */
+function computeStats(){const T=state.trials;if(!T.length)return{acc:"—",rt:"—",best:state.bestStreak||0,by:"—"};const acc=(T.filter(t=>t.correct).length/T.length*100).toFixed(1)+"%",rt=Math.round(median(T.filter(t=>t.correct).map(t=>t.rt)))+" ms";return{acc,rt,best:state.bestStreak,by:""}};function renderResults(){const s=computeStats();$("#accOverall").textContent=s.acc;$("#rtOverall").textContent=s.rt;$("#bestStreak").textContent=s.best;$("#byNumber").textContent=s.by;}
 
 /* UI */
-function show(id){
-  for(const pid of ['gamePanel','resultsPanel','settingsPanel','infoPanel']) document.getElementById(pid).hidden=true;
-  document.getElementById(id).hidden=false;
-}
-function buildKeypad(){
-  const kp=$('#keypad'); kp.innerHTML='';
-  const max = +$('#maxN').value;
-  for(let i=1;i<=max;i++){
-    const b=document.createElement('button'); b.className='key'; b.textContent=String(i);
-    b.addEventListener('click',()=>handleAnswer(i)); kp.appendChild(b);
-  }
-}
+function show(id){for(const pid of["gamePanel","resultsPanel","settingsPanel","infoPanel"])document.getElementById(pid).hidden=true;document.getElementById(id).hidden=false;}
+function buildKeypad(){const kp=$("#keypad");kp.innerHTML="";for(let i=1;i<=+$("#maxN").value;i++){const b=document.createElement("button");b.className="key";b.textContent=String(i);b.onclick=()=>handleAnswer(i);kp.appendChild(b);}}
 
-$('#btnPlay').onclick=()=>{ setMode(Modes.PLAY); show('gamePanel'); startTrial(); };
-$('#btnPractice').onclick=()=>{ setMode(Modes.PRACTICE); show('gamePanel'); startTrial(); };
-$('#btnResults').onclick=()=>{ renderResults(); show('resultsPanel'); };
-$('#btnSettings').onclick=()=>{ show('settingsPanel'); };
-$('#btnInfo').onclick=()=>{ show('infoPanel'); };
-
-$('#btnExport').onclick=()=>exportCSV();
-$('#btnReset').onclick=()=>{ if(confirm('Reset all saved data?')){ DB.reset(); state.trials=[]; state.bestStreak=0; location.reload(); } };
-
-$('#minN').onchange=$('#maxN').onchange=()=>{ 
-  const min=+$('#minN').value, max=+$('#maxN').value;
-  $('#minN').value=clamp(min,1,12); $('#maxN').value=clamp(max,1,12);
-  buildKeypad();
+$("#btnPlay").onclick=()=>{mode="Play";show("gamePanel");startTrial();};
+$("#btnPractice").onclick=()=>{mode="Practice";show("gamePanel");startTrial();};
+$("#btnResults").onclick=()=>{renderResults();show("resultsPanel");};
+$("#btnSettings").onclick=()=>show("settingsPanel");
+$("#btnInfo").onclick=()=>show("infoPanel");
+$("#btnExport").onclick = () => {
+  const rows = [["timestamp","n","resp","correct","rt_ms"]];
+  for (const t of state.trials) rows.push([t.ts, t.n, t.resp, t.correct?1:0, t.rt]);
+  const csv = rows.map(r => r.join(",")).join("\n");
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "hannah_subitize_results.csv";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 80);
 };
-$('#chkAudio').onchange=e=>{ state.audio=e.target.checked; DB.save(state); ensureAudio(); };
-$('#chkBig').onchange=e=>{ state.big=e.target.checked; DB.save(state); drawBackground(); };
 
-document.addEventListener('keydown',e=>{
-  const map={ '1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'0':10,'-':11,'=':12,'+':12 };
-  if(map[e.key]) handleAnswer(map[e.key]);
-  if(e.key==='Escape'){ show('settingsPanel'); }
+$("#btnReset").onclick = () => {
+  if (confirm("Reset all saved data?")) {
+    DB.reset();
+    location.reload();
+  }
+};
+
+$("#minN").onchange = $("#maxN").onchange = () => {
+  const min = +$("#minN").value, max = +$("#maxN").value;
+  $("#minN").value = clamp(min, 1, 12);
+  $("#maxN").value = clamp(max, 1, 12);
+  buildKeypad();
+  redrawCurrent();
+};
+
+$("#chkAudio").onchange = e => {
+  state.audio = e.target.checked;
+  DB.save(state);
+  ensureAudio();
+};
+
+$("#chkBig").onchange = e => {
+  state.big = e.target.checked;
+  DB.save(state);
+  redrawCurrent();
+};
+
+document.addEventListener("keydown", e => {
+  const map = { "1":1,"2":2,"3":3,"4":4,"5":5,"6":6,"7":7,"8":8,"9":9,"0":10,"-":11,"=":12,"+":12 };
+  if (map[e.key]) handleAnswer(map[e.key]);
+  if (e.key === "Escape") show("settingsPanel");
 });
 
 /* boot */
 function applyStateToUI(){
-  $('#minN').value=state.minN; $('#maxN').value=state.maxN;
-  $('#chkAudio').checked=state.audio; $('#chkBig').checked=state.big;
-  buildKeypad(); drawBackground();
+  $("#minN").value = state.minN; 
+  $("#maxN").value = state.maxN;
+  $("#chkAudio").checked = state.audio;
+  $("#chkBig").checked = state.big;
+  buildKeypad();
+  resizeCanvas();
+  redrawCurrent();
 }
-resizeCanvas(); applyStateToUI(); show('gamePanel'); startTrial();
+applyStateToUI();
+show("gamePanel");
+startTrial();
 </script>
 </body>
 </html>
